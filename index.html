@@ -41,6 +41,7 @@ h1{font-size:1.6rem;margin:0 0 4px}
 .acts{margin-top:14px;display:flex;gap:10px;flex-wrap:wrap}
 .btn{padding:12px 20px;border-radius:10px;border:0;background:var(--p);color:#fff;font-size:1rem;font-weight:600;cursor:pointer;font-family:inherit}
 .btn:hover{background:var(--pd)}
+.btn.big{padding:14px 28px;font-size:1.08rem}
 .btn.ghost{background:#fff;color:var(--p);border:2px solid var(--p)}
 .nota{font-size:2.4rem;font-weight:800;color:var(--p);margin:6px 0}
 .tiempo{font-size:1.1rem;font-weight:700;color:var(--t)}
@@ -304,115 +305,184 @@ function nuevaPregunta(tema,nivel){
   return withOptions(gen());
 }
 
-/* ---------- estado, temporizador y UI ---------- */
+/* ---------- estado por tema, temporizador y UI ---------- */
 var app=document.getElementById("app");
-var est={tema:null,nivel:1,aciertos:0,fallos:[],q:null,erroresEj:0,espera:false,seg:0,timer:null};
+var ests={},temaActual=null;
+function est(t){
+  if(!ests[t])ests[t]={nivel:1,aciertos:0,fallos:[],q:null,erroresEj:0,espera:false,seg:0,running:false,empezado:false,terminado:false,superada:false,fb:null,nextBtn:null,marcas:[]};
+  return ests[t];
+}
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
 function fmtT(s){var m=Math.floor(s/60),r=s%60;return m+":"+String(r).padStart(2,"0")}
-function startTimer(){stopTimer();est.seg=0;est.timer=setInterval(function(){est.seg++;var el=document.getElementById("clock");if(el)el.textContent="⏱ "+fmtT(est.seg)},1000)}
-function stopTimer(){if(est.timer){clearInterval(est.timer);est.timer=null}}
+/* un único reloj global: solo avanza el tema en curso si está en marcha */
+setInterval(function(){
+  if(!temaActual)return;
+  var e=est(temaActual);
+  if(!e.running)return;
+  e.seg++;
+  var el=document.getElementById("clock");
+  if(el)el.textContent="⏱ "+fmtT(e.seg);
+},1000);
 function bestKey(t){return "mati_best_"+t}
 function getBest(t){try{var v=localStorage.getItem(bestKey(t));return v==null?null:parseInt(v,10)}catch(e){return null}}
 function setBest(t,s){try{localStorage.setItem(bestKey(t),String(s))}catch(e){}}
 function renderInicio(){
-  stopTimer();
-  var h='<h1>🧮 Mates para Mati</h1><p class="sub">Elige un tema: 10 ejercicios con dificultad ascendente. Dos fallos en el mismo ejercicio terminan la prueba. ¡El reloj corre!</p><div class="temas">';
-  for(var k in TEMAS){var t=TEMAS[k],b=getBest(k);
-   h+='<button class="tema" data-accion="tema" data-tema="'+k+'"><span class="ico">'+t.icono+'</span><span><b>'+t.nombre+'</b><span>'+t.desc+(b!=null?" · ⏱ mejor: "+fmtT(b):"")+'</span></span></button>'}
+  if(temaActual)est(temaActual).running=false;
+  temaActual=null;
+  var h='<h1>🧮 Mates para Mati</h1><p class="sub">Elige un tema: 10 ejercicios con dificultad ascendente. Dos fallos en el mismo ejercicio terminan la prueba. El reloj solo corre cuando pulsas <b>▶ Comenzar</b>, y puedes saltar de tema en tema sin perder el progreso.</p><div class="temas">';
+  for(var k in TEMAS){var t=TEMAS[k],e=est(k),b=getBest(k),info=t.desc;
+   if(e.empezado){info=e.terminado?(e.superada?"✅ Superada":"📈 Terminada")+" · ⏱ "+fmtT(e.seg):"🔄 En curso · ejercicio "+e.nivel+" de 10 · ⏱ "+fmtT(e.seg)}
+   if(b!=null)info+=" · 🏆 mejor: "+fmtT(b);
+   h+='<button class="tema" data-accion="tema" data-tema="'+k+'"><span class="ico">'+t.icono+'</span><span><b>'+t.nombre+'</b><span>'+info+'</span></span></button>'}
   h+='</div><p class="foot">Funciona sin conexión · 100% local</p>';
   app.innerHTML=h;
 }
-function renderPregunta(){
-  var t=TEMAS[est.tema],q=est.q;
-  var dots="";for(var i=1;i<=10;i++){var c=i<est.nivel?(est.fallos.length?"bad":(i<=est.aciertos?"ok":"bad")):(i===est.nivel?"now":"");
+function renderActs(e){
+  var acts=document.querySelector(".acts");
+  if(!acts)return;
+  var h="";
+  if(e.running)h+='<button class="btn ghost" data-accion="pausar">⏸ Pausar</button>';
+  else h+='<button class="btn big" data-accion="comenzar">▶ '+(e.empezado?"Seguir":"Comenzar")+'</button>';
+  if(e.nextBtn)h+='<button class="btn" data-accion="'+e.nextBtn.accion+'">'+e.nextBtn.txt+'</button>';
+  h+='<button class="btn ghost" data-accion="reiniciar" title="Empezar este tema desde cero">↺</button>';
+  h+='<button class="btn ghost" data-accion="inicio">← Cambiar de tema</button>';
+  acts.innerHTML=h;
+}
+function renderPregunta(tema){
+  temaActual=tema;
+  var e=est(tema),t=TEMAS[tema],q=e.q;
+  var dots="";for(var i=1;i<=10;i++){var c=i<e.nivel?"ok":(i===e.nivel?"now":"");
    dots+='<div class="pt '+c+'"></div>'}
-  var h='<div class="meta"><span>'+t.icono+" "+t.nombre+'</span><span>Ejercicio '+est.nivel+' de 10 · Aciertos: '+est.aciertos+'</span><span class="clock" id="clock">⏱ '+fmtT(est.seg)+'</span></div><div class="prog">'+dots+'</div>';
+  var activo=e.running&&!e.espera;
+  var h='<div class="meta"><span>'+t.icono+" "+t.nombre+'</span><span>Ejercicio '+e.nivel+' de 10 · Aciertos: '+e.aciertos+'</span><span class="clock" id="clock">⏱ '+fmtT(e.seg)+'</span></div><div class="prog">'+dots+'</div>';
+  if(!e.empezado)h+='<p class="sub" style="margin:-4px 0 12px">Pulsa <b>▶ Comenzar</b> para arrancar el reloj. Mientras tanto las opciones están desactivadas.</p>';
+  else if(!e.running&&!e.espera)h+='<p class="sub" style="margin:-4px 0 12px">En pausa: pulsa <b>▶ Seguir</b> para continuar.</p>';
   h+='<div class="card"><div class="q">'+esc(q.en).replace(/\n/g,"<br>")+'</div><div class="opts" id="opts">';
   var letras=["A","B","C","D","E"];
   for(var i=0;i<q.opciones.length;i++){
-   h+='<button class="op" data-accion="op" data-i="'+i+'"><span class="l">'+letras[i]+'</span><span>'+esc(q.opciones[i])+'</span></button>'}
+   h+='<button class="op" data-accion="op" data-i="'+i+'"'+(activo?"":" disabled")+'><span class="l">'+letras[i]+'</span><span>'+esc(q.opciones[i])+'</span></button>'}
   h+='</div><div id="fb"></div></div>';
-  h+='<div class="acts"><button class="btn ghost" data-accion="inicio">← Cambiar de tema</button></div>';
+  h+='<div class="acts"></div>';
   app.innerHTML=h;
+  for(var m=0;m<e.marcas.length;m++)marcar(e.marcas[m].i,e.marcas[m].c);
+  if(e.fb)mostrarFb(e.fb.tipo,e.fb.titulo,e.fb.texto,e.fb.ex,true);
+  renderActs(e);
 }
-function renderFinal(superada){
-  stopTimer();
-  var total=est.aciertos,nf=est.fallos.length,t=est.seg,rec=false;
-  if(superada){var b=getBest(est.tema);if(b==null||t<b){setBest(est.tema,t);rec=true}}
-  var h='<div class="card" style="text-align:center"><div style="font-size:2.6rem">'+(superada?"🎉":"📈")+'</div>';
-  h+='<h2>'+(superada?"¡Prueba superada!":"Prueba terminada")+'</h2>';
+function renderFinal(tema){
+  temaActual=tema;
+  var e=est(tema),t=TEMAS[tema];
+  e.running=false;
+  var total=e.aciertos,nf=e.fallos.length,tm=e.seg,rec=false;
+  if(e.superada){var b=getBest(tema);if(b==null||tm<b){setBest(tema,tm);rec=true}}
+  var h='<div class="card" style="text-align:center"><div style="font-size:2.6rem">'+(e.superada?"🎉":"📈")+'</div>';
+  h+='<h2>'+(e.superada?"¡Prueba superada!":"Prueba terminada")+'</h2>';
   h+='<div class="nota">'+total+'/10</div>';
-  h+='<div class="tiempo">⏱ Tiempo: '+fmtT(t)+(rec?" · 🏆 ¡Nuevo récord!":"")+'</div>';
-  h+='<p class="sub">'+(superada?"Has acertado los 10 ejercicios.":nf===0?"Ningún fallo ¡perfecto!":"Has fallado "+nf+(nf===1?" ejercicio":" ejercicios")+". Repasa:")+'</p></div>';
+  h+='<div class="tiempo">⏱ Tiempo: '+fmtT(tm)+(rec?" · 🏆 ¡Nuevo récord!":"")+'</div>';
+  h+='<p class="sub">'+(e.superada?"Has acertado los 10 ejercicios.":nf===0?"Ningún fallo ¡perfecto!":"Has fallado "+nf+(nf===1?" ejercicio":" ejercicios")+". Repasa:")+'</p></div>';
   if(nf){h+='<div class="card"><b>Repaso de los errores</b><div style="height:10px"></div>';
-   for(var i=0;i<est.fallos.length;i++){var f=est.fallos[i];
+   for(var i=0;i<e.fallos.length;i++){var f=e.fallos[i];
     h+='<div class="rep"><div class="ej">'+esc(f.en).replace(/\n/g," · ")+'</div><div class="sol">Solución correcta: '+esc(f.ok)+'</div><div class="exp">'+f.ex+'</div></div>'}
    h+='</div>'}
   h+='<div class="acts"><button class="btn" data-accion="repetir">🔁 Repetir tema</button>';
   h+='<button class="btn ghost" data-accion="inicio">🏠 Elegir otro tema</button></div>';
   app.innerHTML=h;
 }
-function mostrarFb(tipo,titulo,texto,ex){
+function mostrarFb(tipo,titulo,texto,ex,sinScroll){
   var fb=document.getElementById("fb");
+  if(!fb)return;
   fb.innerHTML='<div class="fb '+tipo+'"><div class="t '+(tipo==="good"?"g":"b")+'">'+titulo+'</div>'+texto+(ex?'<div style="margin-top:6px;color:#475569">'+ex+'</div>':'')+'</div>';
-  fb.scrollIntoView({behavior:"smooth",block:"nearest"});
+  if(!sinScroll)fb.scrollIntoView({behavior:"smooth",block:"nearest"});
 }
 function marcar(i,clase){
   var bs=document.querySelectorAll("#opts .op");
   if(bs[i]){bs[i].classList.add(clase);bs[i].disabled=true}
 }
 function bloquearTodos(){var bs=document.querySelectorAll("#opts .op");for(var i=0;i<bs.length;i++)bs[i].disabled=true}
-function btnSiguiente(txt,accion){
-  var acts=document.querySelector(".acts");
-  var b=document.createElement("button");
-  b.className="btn";b.textContent=txt;b.setAttribute("data-accion",accion);
-  acts.insertBefore(b,acts.firstChild);
+function actualizarOpciones(e){
+  var activo=e.running&&!e.espera;
+  var bs=document.querySelectorAll("#opts .op");
+  for(var i=0;i<bs.length;i++){
+   if(bs[i].classList.contains("right")||bs[i].classList.contains("wrong"))continue;
+   bs[i].disabled=!activo}
+}
+function comenzar(){
+  var e=est(temaActual);
+  if(e.terminado)return;
+  e.running=true;e.empezado=true;
+  actualizarOpciones(e);renderActs(e);
+}
+function pausar(){
+  var e=est(temaActual);
+  e.running=false;
+  actualizarOpciones(e);renderActs(e);
 }
 function responder(i){
-  if(est.espera)return;
-  var q=est.q;
+  var e=est(temaActual);
+  if(!e.running||e.espera)return;
+  var q=e.q;
   if(i===q.correcta){
-   est.espera=true;
-   marcar(i,"right");bloquearTodos();
-   est.aciertos++;
-   mostrarFb("good","¡Correcto!",est.erroresEj?"Resuelto al segundo intento.":"Muy bien.",q.ex);
-   btnSiguiente(est.nivel>=10?"🏁 Ver resultado":"Siguiente ejercicio →","siguiente");
+   e.espera=true;
+   marcar(i,"right");bloquearTodos();e.marcas.push({i:i,c:"right"});
+   e.aciertos++;
+   e.fb={tipo:"good",titulo:"¡Correcto!",texto:e.erroresEj?"Resuelto al segundo intento.":"Muy bien.",ex:q.ex};
+   e.nextBtn=e.nivel>=10?{txt:"🏁 Ver resultado",accion:"finalizar"}:{txt:"Siguiente ejercicio →",accion:"siguiente"};
   }else{
-   marcar(i,"wrong");
-   est.erroresEj++;
-   if(est.erroresEj>=2){
-    est.espera=true;bloquearTodos();
-    marcar(q.correcta,"right");
-    est.fallos.push({en:q.en,ok:q.ok,ex:q.ex});
-    mostrarFb("bad","Has fallado dos veces: prueba terminada","La respuesta correcta era <b>"+esc(q.ok)+"</b>.",q.ex);
-    btnSiguiente("📈 Ver resultado final","final");
+   marcar(i,"wrong");e.marcas.push({i:i,c:"wrong"});
+   e.erroresEj++;
+   if(e.erroresEj>=2){
+    e.espera=true;bloquearTodos();
+    marcar(q.correcta,"right");e.marcas.push({i:q.correcta,c:"right"});
+    e.fallos.push({en:q.en,ok:q.ok,ex:q.ex});
+    e.fb={tipo:"bad",titulo:"Has fallado dos veces: prueba terminada",texto:"La respuesta correcta era <b>"+esc(q.ok)+"</b>.",ex:q.ex};
+    e.nextBtn={txt:"📈 Ver resultado final",accion:"final"};
    }else{
-    mostrarFb("bad","No es correcto","Elige otra opción. Pista: "+esc(q.pi||"revisa la operación."));
+    e.fb={tipo:"bad",titulo:"No es correcto",texto:"Elige otra opción. Pista: "+esc(q.pi||"revisa la operación."),ex:""};
    }
   }
+  mostrarFb(e.fb.tipo,e.fb.titulo,e.fb.texto,e.fb.ex);
+  renderActs(e);
 }
 function siguiente(){
-  est.nivel++;
-  if(est.nivel>10){renderFinal(true);return}
-  est.erroresEj=0;est.espera=false;
-  est.q=nuevaPregunta(est.tema,est.nivel);
-  renderPregunta();
+  var e=est(temaActual);
+  e.erroresEj=0;e.espera=false;e.fb=null;e.nextBtn=null;e.marcas=[];
+  e.nivel++;
+  if(e.nivel>10){finalizar(true);return}
+  e.q=nuevaPregunta(temaActual,e.nivel);
+  renderPregunta(temaActual);
 }
-function iniciar(tema){
-  est.tema=tema;est.nivel=1;est.aciertos=0;est.fallos=[];est.erroresEj=0;est.espera=false;
-  est.q=nuevaPregunta(tema,1);
-  renderPregunta();
-  startTimer();
+function finalizar(superada){
+  var e=est(temaActual);
+  e.running=false;e.terminado=true;e.superada=!!superada;
+  renderFinal(temaActual);
+}
+function reiniciar(tema){
+  var e=est(tema);
+  e.nivel=1;e.aciertos=0;e.fallos=[];e.erroresEj=0;e.espera=false;e.seg=0;
+  e.running=false;e.empezado=false;e.terminado=false;e.superada=false;
+  e.fb=null;e.nextBtn=null;e.marcas=[];
+  e.q=nuevaPregunta(tema,1);
+  renderPregunta(tema);
+}
+function iniciarTema(tema){
+  var e=est(tema);
+  if(e.terminado){renderFinal(tema);return}
+  if(!e.q)e.q=nuevaPregunta(tema,e.nivel);
+  e.running=false; /* el reloj no corre hasta pulsar Comenzar */
+  renderPregunta(tema);
 }
 document.addEventListener("click",function(ev){
   var el=ev.target.closest("[data-accion]");
   if(!el)return;
   var a=el.getAttribute("data-accion");
-  if(a==="tema")iniciar(el.getAttribute("data-tema"));
+  if(a==="tema")iniciarTema(el.getAttribute("data-tema"));
   else if(a==="op")responder(parseInt(el.getAttribute("data-i"),10));
+  else if(a==="comenzar")comenzar();
+  else if(a==="pausar")pausar();
   else if(a==="siguiente")siguiente();
-  else if(a==="final")renderFinal(false);
-  else if(a==="repetir")iniciar(est.tema);
+  else if(a==="final")finalizar(false);
+  else if(a==="finalizar")finalizar(true);
+  else if(a==="repetir")reiniciar(temaActual);
+  else if(a==="reiniciar"){if(confirm("¿Reiniciar este tema desde el principio?"))reiniciar(temaActual)}
   else if(a==="inicio")renderInicio();
 });
 renderInicio();
