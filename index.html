@@ -18,6 +18,9 @@ h1{font-size:1.6rem;margin:0 0 4px}
 .tema .ico{font-size:2rem;line-height:1}
 .tema b{display:block;font-size:1.08rem}
 .tema span{color:var(--m);font-size:.85rem}
+.tema .info{display:block;color:#475569;margin-top:3px}
+.racha{color:#ea580c;font-weight:800}
+.chip{color:var(--m);margin:-6px 0 6px}
 .prog{display:flex;gap:5px;margin-bottom:14px}
 .pt{flex:1;height:8px;border-radius:4px;background:#dbe3ef}
 .pt.ok{background:var(--ok)}.pt.bad{background:var(--bad)}.pt.now{background:var(--p)}
@@ -279,62 +282,157 @@ var TEMAS={
   divis:{nombre:"Divisiones",icono:"➗",desc:"Exactas y con resto (niveles 9-10)",niveles:DI}
 };
 
-/* ---------- opciones ---------- */
-function withOptions(g){
+/* ---------- opciones (5 en Fácil, 6 en Medio/Difícil) ---------- */
+var LETRAS=["A","B","C","D","E","F"];
+function candidatos(base,dif){
+  var list=[],offs=dif===3?[1,-1,2,-2,3,-3,10,-10]:[1,-1,2,-2,3,-3,10,-10,100,-100];
+  for(var i=0;i<offs.length;i++)list.push(base+offs[i]);
+  var s=String(base);
+  if(s.length>1){ /* intercambiar cifras adyacentes: distractores tramposos */
+    for(var j=0;j<s.length-1;j++){var arr=s.split(""),t=arr[j];arr[j]=arr[j+1];arr[j+1]=t;
+      var sw=arr.join("");
+      if(/^\d+$/.test(sw)&&parseInt(sw,10)!==base)list.push(parseInt(sw,10))}
+  }
+  return list
+}
+function withOptions(g,dif){
+  var nOpt=dif===1?5:6;
   var opts=[g.ok],seen={};seen[g.ok]=1;
   var ds=g.d||[];
-  for(var i=0;i<ds.length&&opts.length<5;i++){var v=String(ds[i]);if(v!=null&&!seen[v]){seen[v]=1;opts.push(v)}}
-  var m=String(g.ok).match(/^(-?\d+)( resto (\d+))?$/),oj=0;
-  while(opts.length<5&&oj<200){
+  for(var i=0;i<ds.length&&opts.length<nOpt;i++){var v=String(ds[i]);if(v!=null&&!seen[v]){seen[v]=1;opts.push(v)}}
+  var m=String(g.ok).match(/^(-?\d+)( resto (\d+))?$/),oj=0,cands=null;
+  if(m&&!m[2])cands=candidatos(parseInt(m[1],10),dif);
+  while(opts.length<nOpt&&oj<400){
     var cand=null;
     if(m&&m[2]){var q=parseInt(m[1],10),r=parseInt(m[3],10);
-      var k=[[1,0],[-1,0],[0,1],[0,-1],[2,0]][oj%5];
+      var k=[[1,0],[-1,0],[0,1],[0,-1],[2,0],[-2,0]][oj%6];
       var nq=q+k[0],nr=r+k[1];
       if(nr>=0)cand=nq+" resto "+nr;else oj++;
-    }else if(m){var base=parseInt(m[1],10),offs=[1,-1,2,-2,3,-3,10,-10,100,-100];
-      cand=String(base+offs[oj%offs.length]);
-    }else{cand=g.ok+" ("+(oj+1)+")"}
+    }else if(cands){cand=String(cands[oj%cands.length])}
+    else{cand=g.ok+" ("+(oj+1)+")"}
     if(cand!=null&&!seen[cand]){seen[cand]=1;opts.push(cand)}
     oj++;
   }
   var orden=shuffle(opts);
   return{en:g.en,opciones:orden,correcta:orden.indexOf(g.ok),ex:g.ex||"",pi:g.pi||"",ok:g.ok};
 }
-function nuevaPregunta(tema,nivel){
-  var gen=TEMAS[tema].niveles[nivel-1];
-  return withOptions(gen());
+
+/* ---------- dificultades 2 y 3: números más grandes, misma explicación ---------- */
+function reescalar(g,dif){
+  var m=g.en.match(/^(\d+) ([+−×÷]) (\d+)(?: ([+−×÷]) (\d+))?$/);
+  if(!m)return g; /* formato inesperado: se queda como está */
+  var f=dif===2?1.5:2;
+  function sc(x){var v=Math.round(x*f);return v>x?v:x+1}
+  var a=parseInt(m[1],10),op=m[2],b=parseInt(m[3],10),c=m[5]!=null?parseInt(m[5],10):null;
+  var en,ok,ex,pi;
+  if(op==="+"){
+    var a2=sc(a),b2=sc(b),v=a2+b2;
+    if(c!=null){var c2=sc(c);v+=c2;en=a2+" + "+b2+" + "+c2;
+      ex="Suma de tres números: ("+a2+" + "+b2+") + "+c2+" = "+(a2+b2)+" + "+c2+" = <b>"+v+"</b>."}
+    else{en=a2+" + "+b2;ex=a2+" + "+b2+" = <b>"+v+"</b>. Suma columna a columna y revisa las llevadas."}
+    ok=String(v);pi="Suma con calma: primero las unidades y apunta las llevadas.";
+  }else if(op==="−"){
+    var a2=sc(a),b2=sc(b),v=a2-b2;
+    en=a2+" − "+b2;ok=String(v);
+    ex=a2+" − "+b2+" = <b>"+v+"</b>."+(v<0?" Es negativo porque "+a2+" < "+b2+".":" Comprueba sumando: "+v+" + "+b2+" = "+a2+".");
+    pi=v<0?"Da negativo: calcula "+b2+" − "+a2+" y ponle el signo −.":"Resta por columnas, pidiendo prestado en las unidades si hace falta.";
+  }else if(op==="×"){
+    var a2=sc(a),b2=sc(b),v=a2*b2;
+    en=a2+" × "+b2;ok=String(v);
+    ex=a2+" × "+b2+" = <b>"+v+"</b>. Descompón: ("+(Math.floor(a2/10)*10)+" + "+(a2%10)+") × "+b2+".";
+    pi="Multiplica por las decenas y por las unidades por separado.";
+  }else{ /* ÷: se reescala el cociente para seguir siendo exacta (o con el mismo resto) */
+    var d=sc(b),qm=String(g.ok).match(/^(\d+) resto (\d+)$/),r=qm?parseInt(qm[2],10):0;
+    var q=sc(parseInt(g.ok,10)),n=d*q+r;
+    en=n+" ÷ "+d;ok=r?q+" resto "+r:String(q);
+    ex=n+" ÷ "+d+": "+d+" × "+q+" = "+(d*q)+(r?", sobran "+r:"")+" → <b>"+ok+"</b>.";
+    pi=r?"El resto siempre es menor que "+d+".":"Piensa en la tabla del "+d+".";
+  }
+  return{en:en,ok:ok,ex:ex,pi:pi}; /* distractores nuevos y más cercanos */
+}
+function nuevaPregunta(tema,nivel,dif){
+  var g=TEMAS[tema].niveles[nivel-1]();
+  if(dif>1)g=reescalar(g,dif);
+  return withOptions(g,dif);
 }
 
-/* ---------- estado por tema, temporizador y UI ---------- */
+/* ---------- estado por tema Y dificultad, temporizador y UI ---------- */
 var app=document.getElementById("app");
-var ests={},temaActual=null;
-function est(t){
-  if(!ests[t])ests[t]={nivel:1,aciertos:0,fallos:[],q:null,erroresEj:0,espera:false,seg:0,running:false,empezado:false,terminado:false,superada:false,fb:null,nextBtn:null,marcas:[]};
-  return ests[t];
+var ests={},temaActual=null,difActual=1;
+var DIFS={
+ 1:{nombre:"Fácil",estrellas:"⭐",maxFallos:2,desc:"Como hasta ahora: 5 opciones y puedes fallar 2 veces"},
+ 2:{nombre:"Medio",estrellas:"⭐⭐",maxFallos:1,desc:"Números más grandes, 6 opciones y 1 solo fallo = fin"},
+ 3:{nombre:"Difícil",estrellas:"⭐⭐⭐",maxFallos:1,desc:"Números 2 veces más grandes, distractores más parecidos, sin pista y 1 fallo = fin"}
+};
+function clave(t,d){return t+"_"+d}
+function est(t,d){
+  var k=clave(t,d);
+  if(!ests[k])ests[k]={tema:t,dif:d,nivel:1,aciertos:0,fallos:[],q:null,erroresEj:0,espera:false,seg:0,running:false,empezado:false,terminado:false,superada:false,fb:null,nextBtn:null,marcas:[],racha:0,maxRacha:0,segPreg:0};
+  return ests[k];
 }
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
 function fmtT(s){var m=Math.floor(s/60),r=s%60;return m+":"+String(r).padStart(2,"0")}
-/* un único reloj global: solo avanza el tema en curso si está en marcha */
+/* un único reloj global: solo avanza el tema+dificultad en curso si está en marcha */
 setInterval(function(){
   if(!temaActual)return;
-  var e=est(temaActual);
+  var e=est(temaActual,difActual);
   if(!e.running)return;
   e.seg++;
   var el=document.getElementById("clock");
   if(el)el.textContent="⏱ "+fmtT(e.seg);
 },1000);
-function bestKey(t){return "mati_best_"+t}
-function getBest(t){try{var v=localStorage.getItem(bestKey(t));return v==null?null:parseInt(v,10)}catch(e){return null}}
-function setBest(t,s){try{localStorage.setItem(bestKey(t),String(s))}catch(e){}}
+/* ---------- localStorage: récords, fechas de superación y rachas ---------- */
+function lsGet(k){try{var v=localStorage.getItem(k);return v==null?null:v}catch(e){return null}}
+function lsSet(k,v){try{localStorage.setItem(k,String(v))}catch(e){}}
+function bestKey(t,d){return "mati_best_"+t+"_"+d}
+function getBest(t,d){var v=lsGet(bestKey(t,d));if(v==null&&d===1)v=lsGet("mati_best_"+t); /* migración de la versión anterior */
+  return v==null?null:parseInt(v,10)}
+function setBest(t,d,s){lsSet(bestKey(t,d),s)}
+function doneKey(t,d){return "mati_done_"+t+"_"+d}
+function getDone(t,d){return lsGet(doneKey(t,d))}
+function setDone(t,d){lsSet(doneKey(t,d),new Date().toISOString())}
+function rachaKey(t,d){return "mati_racha_"+t+"_"+d}
+function getRacha(t,d){var v=lsGet(rachaKey(t,d));return v==null?0:parseInt(v,10)}
+function setRacha(t,d,s){lsSet(rachaKey(t,d),s)}
+function fmtFecha(iso){
+  try{var f=new Date(iso);if(isNaN(f.getTime()))return iso;
+    return f.toLocaleDateString("es-ES")+" a las "+f.toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})
+  }catch(e){return iso}
+}
+function pausaActual(){
+  if(temaActual){var e=est(temaActual,difActual);e.running=false}
+  temaActual=null;difActual=1;
+}
 function renderInicio(){
-  if(temaActual)est(temaActual).running=false;
-  temaActual=null;
-  var h='<h1>🧮 Mates para Mati</h1><p class="sub">Elige un tema: 10 ejercicios con dificultad ascendente. Dos fallos en el mismo ejercicio terminan la prueba. El reloj solo corre cuando pulsas <b>▶ Comenzar</b>, y puedes saltar de tema en tema sin perder el progreso.</p><div class="temas">';
-  for(var k in TEMAS){var t=TEMAS[k],e=est(k),b=getBest(k),info=t.desc;
-   if(e.empezado){info=e.terminado?(e.superada?"✅ Superada":"📈 Terminada")+" · ⏱ "+fmtT(e.seg):"🔄 En curso · ejercicio "+e.nivel+" de 10 · ⏱ "+fmtT(e.seg)}
-   if(b!=null)info+=" · 🏆 mejor: "+fmtT(b);
-   h+='<button class="tema" data-accion="tema" data-tema="'+k+'"><span class="ico">'+t.icono+'</span><span><b>'+t.nombre+'</b><span>'+info+'</span></span></button>'}
+  pausaActual();
+  var h='<h1>🧮 Mates para Mati</h1><p class="sub">Elige un tema y su <b>dificultad</b>: 10 ejercicios con dificultad ascendente. En <b>Fácil</b> puedes fallar 2 veces; en <b>Medio</b> y <b>Difícil</b> basta 1 fallo. Gana rachas 🔥 acertando seguido en menos de 1 minuto. El reloj solo corre cuando pulsas <b>▶ Comenzar</b>.</p><div class="temas">';
+  for(var k in TEMAS){var t=TEMAS[k],r={sup:0,mejor:null,curso:null};
+   for(var d=1;d<=3;d++){
+    if(getDone(k,d))r.sup++;
+    var b=getBest(k,d);
+    if(b!=null&&(r.mejor==null||b<r.mejor))r.mejor=b;
+    var e=ests[clave(k,d)];
+    if(e&&e.empezado&&!e.terminado)r.curso=d}
+   var info="🏅 "+r.sup+"/3 dificultades superadas";
+   if(r.curso)info="🔄 En curso: "+DIFS[r.curso].estrellas+" "+DIFS[r.curso].nombre+" · "+info;
+   if(r.mejor!=null)info+=" · 🏆 mejor: "+fmtT(r.mejor);
+   h+='<button class="tema" data-accion="tema" data-tema="'+k+'"><span class="ico">'+t.icono+'</span><span><b>'+t.nombre+'</b><span class="info">'+info+'</span></span></button>'}
   h+='</div><p class="foot">Funciona sin conexión · 100% local</p>';
+  app.innerHTML=h;
+}
+function renderDificultades(tema){
+  pausaActual();
+  var t=TEMAS[tema];
+  var h='<h1>'+t.icono+' '+t.nombre+'</h1><p class="sub">'+t.desc+'. Cada dificultad tiene su progreso, su reloj y su récord propios.</p><div class="temas">';
+  for(var d=1;d<=3;d++){
+    var df=DIFS[d],e=est(tema,d),b=getBest(tema,d),dn=getDone(tema,d),br=getRacha(tema,d),info="";
+    if(e.empezado&&!e.terminado)info="🔄 En curso · ejercicio "+e.nivel+"/10 · ⏱ "+fmtT(e.seg);
+    else if(e.terminado)info=e.superada?"✅ Superada en esta sesión":"📈 Terminada sin superarse";
+    if(dn)info+=(info?" · ":"")+"✔ Última superación: "+fmtFecha(dn);
+    if(b!=null)info+=(info?" · ":"")+"🏆 mejor: "+fmtT(b);
+    if(br>1)info+=(info?" · ":"")+"🔥 récord de racha: "+br;
+    h+='<button class="tema" data-accion="dif" data-tema="'+tema+'" data-dif="'+d+'"><span class="ico">'+df.estrellas+'</span><span><b>'+df.nombre+'</b><span>'+df.desc+'</span><span class="info">'+(info||"Sin empezar todavía")+'</span></span></button>'}
+  h+='</div><div class="acts"><button class="btn ghost" data-accion="inicio">← Cambiar de tema</button></div>';
   app.innerHTML=h;
 }
 function renderActs(e){
@@ -344,46 +442,62 @@ function renderActs(e){
   if(e.running)h+='<button class="btn ghost" data-accion="pausar">⏸ Pausar</button>';
   else h+='<button class="btn big" data-accion="comenzar">▶ '+(e.empezado?"Seguir":"Comenzar")+'</button>';
   if(e.nextBtn)h+='<button class="btn" data-accion="'+e.nextBtn.accion+'">'+e.nextBtn.txt+'</button>';
-  h+='<button class="btn ghost" data-accion="reiniciar" title="Empezar este tema desde cero">↺</button>';
-  h+='<button class="btn ghost" data-accion="inicio">← Cambiar de tema</button>';
+  h+='<button class="btn ghost" data-accion="reiniciar" title="Empezar esta dificultad desde cero">↺</button>';
+  h+='<button class="btn ghost" data-accion="difs">← Otra dificultad</button>';
   acts.innerHTML=h;
 }
-function renderPregunta(tema){
-  temaActual=tema;
-  var e=est(tema),t=TEMAS[tema],q=e.q;
+function actualizarRacha(e){
+  var el=document.getElementById("racha");
+  if(!el)return;
+  el.textContent=e.racha>=2?"🔥 "+e.racha:"";
+}
+function renderPregunta(tema,dif){
+  temaActual=tema;difActual=dif;
+  var e=est(tema,dif),t=TEMAS[tema],df=DIFS[dif],q=e.q;
   var dots="";for(var i=1;i<=10;i++){var c=i<e.nivel?"ok":(i===e.nivel?"now":"");
    dots+='<div class="pt '+c+'"></div>'}
   var activo=e.running&&!e.espera;
-  var h='<div class="meta"><span>'+t.icono+" "+t.nombre+'</span><span>Ejercicio '+e.nivel+' de 10 · Aciertos: '+e.aciertos+'</span><span class="clock" id="clock">⏱ '+fmtT(e.seg)+'</span></div><div class="prog">'+dots+'</div>';
+  var h='<div class="meta"><span>'+t.icono+" "+t.nombre+' <b>'+df.estrellas+'</b></span><span>Ejercicio '+e.nivel+' de 10 · Aciertos: '+e.aciertos+'</span><span class="racha" id="racha"></span><span class="clock" id="clock">⏱ '+fmtT(e.seg)+'</span></div><div class="prog">'+dots+'</div>';
   if(!e.empezado)h+='<p class="sub" style="margin:-4px 0 12px">Pulsa <b>▶ Comenzar</b> para arrancar el reloj. Mientras tanto las opciones están desactivadas.</p>';
   else if(!e.running&&!e.espera)h+='<p class="sub" style="margin:-4px 0 12px">En pausa: pulsa <b>▶ Seguir</b> para continuar.</p>';
+  if(df.maxFallos===1)h+='<p class="sub" style="margin:-4px 0 12px">⚠️ Dificultad '+df.nombre+': <b>1 solo fallo</b> y termina la prueba.</p>';
   h+='<div class="card"><div class="q">'+esc(q.en).replace(/\n/g,"<br>")+'</div><div class="opts" id="opts">';
-  var letras=["A","B","C","D","E"];
   for(var i=0;i<q.opciones.length;i++){
-   h+='<button class="op" data-accion="op" data-i="'+i+'"'+(activo?"":" disabled")+'><span class="l">'+letras[i]+'</span><span>'+esc(q.opciones[i])+'</span></button>'}
+   h+='<button class="op" data-accion="op" data-i="'+i+'"'+(activo?"":" disabled")+'><span class="l">'+LETRAS[i]+'</span><span>'+esc(q.opciones[i])+'</span></button>'}
   h+='</div><div id="fb"></div></div>';
   h+='<div class="acts"></div>';
   app.innerHTML=h;
   for(var m=0;m<e.marcas.length;m++)marcar(e.marcas[m].i,e.marcas[m].c);
   if(e.fb)mostrarFb(e.fb.tipo,e.fb.titulo,e.fb.texto,e.fb.ex,true);
+  actualizarRacha(e);
   renderActs(e);
 }
-function renderFinal(tema){
-  temaActual=tema;
-  var e=est(tema),t=TEMAS[tema];
+function renderFinal(tema,dif){
+  temaActual=tema;difActual=dif;
+  var e=est(tema,dif),t=TEMAS[tema],df=DIFS[dif];
   e.running=false;
   var total=e.aciertos,nf=e.fallos.length,tm=e.seg,rec=false;
-  if(e.superada){var b=getBest(tema);if(b==null||tm<b){setBest(tema,tm);rec=true}}
+  if(e.superada){
+    var b=getBest(tema,dif);
+    if(b==null||tm<b){setBest(tema,dif,tm);rec=true}
+    setDone(tema,dif); /* fecha y hora de la última superación */
+  }
+  if(e.maxRacha>getRacha(tema,dif))setRacha(tema,dif,e.maxRacha);
+  var dn=e.superada?getDone(tema,dif):null;
   var h='<div class="card" style="text-align:center"><div style="font-size:2.6rem">'+(e.superada?"🎉":"📈")+'</div>';
   h+='<h2>'+(e.superada?"¡Prueba superada!":"Prueba terminada")+'</h2>';
+  h+='<div class="chip">'+df.estrellas+" Dificultad "+df.nombre+'</div>';
   h+='<div class="nota">'+total+'/10</div>';
   h+='<div class="tiempo">⏱ Tiempo: '+fmtT(tm)+(rec?" · 🏆 ¡Nuevo récord!":"")+'</div>';
+  if(e.maxRacha>=2)h+='<div class="tiempo racha">🔥 Mejor racha: '+e.maxRacha+' seguidas</div>';
+  if(dn)h+='<div class="tiempo" style="color:var(--ok)">✔ Última superación: '+fmtFecha(dn)+'</div>';
   h+='<p class="sub">'+(e.superada?"Has acertado los 10 ejercicios.":nf===0?"Ningún fallo ¡perfecto!":"Has fallado "+nf+(nf===1?" ejercicio":" ejercicios")+". Repasa:")+'</p></div>';
   if(nf){h+='<div class="card"><b>Repaso de los errores</b><div style="height:10px"></div>';
    for(var i=0;i<e.fallos.length;i++){var f=e.fallos[i];
     h+='<div class="rep"><div class="ej">'+esc(f.en).replace(/\n/g," · ")+'</div><div class="sol">Solución correcta: '+esc(f.ok)+'</div><div class="exp">'+f.ex+'</div></div>'}
    h+='</div>'}
-  h+='<div class="acts"><button class="btn" data-accion="repetir">🔁 Repetir tema</button>';
+  h+='<div class="acts"><button class="btn" data-accion="repetir">🔁 Repetir dificultad</button>';
+  h+='<button class="btn ghost" data-accion="difs">🎯 Otra dificultad</button>';
   h+='<button class="btn ghost" data-accion="inicio">🏠 Elegir otro tema</button></div>';
   app.innerHTML=h;
 }
@@ -406,83 +520,92 @@ function actualizarOpciones(e){
    bs[i].disabled=!activo}
 }
 function comenzar(){
-  var e=est(temaActual);
+  var e=est(temaActual,difActual);
   if(e.terminado)return;
   e.running=true;e.empezado=true;
   actualizarOpciones(e);renderActs(e);
 }
 function pausar(){
-  var e=est(temaActual);
+  var e=est(temaActual,difActual);
   e.running=false;
   actualizarOpciones(e);renderActs(e);
 }
 function responder(i){
-  var e=est(temaActual);
+  var e=est(temaActual,difActual);
   if(!e.running||e.espera)return;
-  var q=e.q;
+  var q=e.q,df=DIFS[e.dif],dt=e.seg-e.segPreg;
   if(i===q.correcta){
    e.espera=true;
    marcar(i,"right");bloquearTodos();e.marcas.push({i:i,c:"right"});
    e.aciertos++;
-   e.fb={tipo:"good",titulo:"¡Correcto!",texto:e.erroresEj?"Resuelto al segundo intento.":"Muy bien.",ex:q.ex};
+   var cuenta=dt<60;
+   if(cuenta){e.racha++;if(e.racha>e.maxRacha)e.maxRacha=e.racha}else e.racha=0;
+   var extra=cuenta?(e.racha>=2?" 🔥 Racha de "+e.racha+" seguidas.":""):" ⏰ Tardaste más de 1 minuto: la racha se reinicia.";
+   e.fb={tipo:"good",titulo:"¡Correcto!",texto:(e.erroresEj?"Resuelto al segundo intento.":"Muy bien.")+extra,ex:q.ex};
    e.nextBtn=e.nivel>=10?{txt:"🏁 Ver resultado",accion:"finalizar"}:{txt:"Siguiente ejercicio →",accion:"siguiente"};
   }else{
+   e.racha=0;
    marcar(i,"wrong");e.marcas.push({i:i,c:"wrong"});
    e.erroresEj++;
-   if(e.erroresEj>=2){
+   if(e.erroresEj>=df.maxFallos){
     e.espera=true;bloquearTodos();
     marcar(q.correcta,"right");e.marcas.push({i:q.correcta,c:"right"});
     e.fallos.push({en:q.en,ok:q.ok,ex:q.ex});
-    e.fb={tipo:"bad",titulo:"Has fallado dos veces: prueba terminada",texto:"La respuesta correcta era <b>"+esc(q.ok)+"</b>.",ex:q.ex};
+    e.fb={tipo:"bad",titulo:df.maxFallos===1?"Respuesta incorrecta: ¡se acabó la prueba!":"Has fallado dos veces: prueba terminada",
+      texto:"La respuesta correcta era <b>"+esc(q.ok)+"</b>."+(df.maxFallos===1?" En Dificultad "+df.nombre+" basta 1 fallo.":""),ex:q.ex};
     e.nextBtn={txt:"📈 Ver resultado final",accion:"final"};
    }else{
     e.fb={tipo:"bad",titulo:"No es correcto",texto:"Elige otra opción. Pista: "+esc(q.pi||"revisa la operación."),ex:""};
    }
   }
   mostrarFb(e.fb.tipo,e.fb.titulo,e.fb.texto,e.fb.ex);
+  actualizarRacha(e);
   renderActs(e);
 }
 function siguiente(){
-  var e=est(temaActual);
+  var e=est(temaActual,difActual);
   e.erroresEj=0;e.espera=false;e.fb=null;e.nextBtn=null;e.marcas=[];
   e.nivel++;
   if(e.nivel>10){finalizar(true);return}
-  e.q=nuevaPregunta(temaActual,e.nivel);
-  renderPregunta(temaActual);
+  e.q=nuevaPregunta(temaActual,e.nivel,e.dif);
+  e.segPreg=e.seg;
+  renderPregunta(temaActual,e.dif);
 }
 function finalizar(superada){
-  var e=est(temaActual);
+  var e=est(temaActual,difActual);
   e.running=false;e.terminado=true;e.superada=!!superada;
-  renderFinal(temaActual);
+  renderFinal(temaActual,e.dif);
 }
-function reiniciar(tema){
-  var e=est(tema);
+function reiniciar(tema,dif){
+  var e=est(tema,dif);
   e.nivel=1;e.aciertos=0;e.fallos=[];e.erroresEj=0;e.espera=false;e.seg=0;
   e.running=false;e.empezado=false;e.terminado=false;e.superada=false;
-  e.fb=null;e.nextBtn=null;e.marcas=[];
-  e.q=nuevaPregunta(tema,1);
-  renderPregunta(tema);
+  e.fb=null;e.nextBtn=null;e.marcas=[];e.racha=0;e.maxRacha=0;e.segPreg=0;
+  e.q=nuevaPregunta(tema,1,dif);
+  renderPregunta(tema,dif);
 }
-function iniciarTema(tema){
-  var e=est(tema);
-  if(e.terminado){renderFinal(tema);return}
-  if(!e.q)e.q=nuevaPregunta(tema,e.nivel);
+function iniciarTema(tema,dif){
+  var e=est(tema,dif);
+  if(e.terminado){renderFinal(tema,dif);return}
+  if(!e.q){e.q=nuevaPregunta(tema,e.nivel,dif);e.segPreg=e.seg}
   e.running=false; /* el reloj no corre hasta pulsar Comenzar */
-  renderPregunta(tema);
+  renderPregunta(tema,dif);
 }
 document.addEventListener("click",function(ev){
   var el=ev.target.closest("[data-accion]");
   if(!el)return;
   var a=el.getAttribute("data-accion");
-  if(a==="tema")iniciarTema(el.getAttribute("data-tema"));
+  if(a==="tema")renderDificultades(el.getAttribute("data-tema"));
+  else if(a==="dif")iniciarTema(el.getAttribute("data-tema"),parseInt(el.getAttribute("data-dif"),10));
   else if(a==="op")responder(parseInt(el.getAttribute("data-i"),10));
   else if(a==="comenzar")comenzar();
   else if(a==="pausar")pausar();
   else if(a==="siguiente")siguiente();
   else if(a==="final")finalizar(false);
   else if(a==="finalizar")finalizar(true);
-  else if(a==="repetir")reiniciar(temaActual);
-  else if(a==="reiniciar"){if(confirm("¿Reiniciar este tema desde el principio?"))reiniciar(temaActual)}
+  else if(a==="repetir")reiniciar(temaActual,difActual);
+  else if(a==="difs")renderDificultades(temaActual);
+  else if(a==="reiniciar"){if(confirm("¿Reiniciar esta dificultad desde el principio?"))reiniciar(temaActual,difActual)}
   else if(a==="inicio")renderInicio();
 });
 renderInicio();
